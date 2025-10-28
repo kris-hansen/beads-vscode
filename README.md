@@ -37,4 +37,23 @@ npm install
 npm run compile
 ```
 
+### Testing
+
+Run the test suite:
+
+```bash
+# Run unit tests (fast, no VSCode required)
+npm run test:unit
+
+# Run all tests including integration tests
+npm test
+
+# Run linter
+npm run lint
+```
+
+See [TESTING.md](TESTING.md) for more information about the test infrastructure.
+
+### Running the Extension
+
 Launch the extension using the **Run > Start Debugging** command in VS Code. This will open a new Extension Development Host window with the Beads explorer view.

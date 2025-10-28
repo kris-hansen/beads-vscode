@@ -3,20 +3,17 @@ import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
+import {
+  BeadItemData,
+  normalizeBead,
+  extractBeads,
+  resolveDataFilePath,
+  formatError,
+  escapeHtml,
+  createTooltip
+} from './utils';
 
 const execFileAsync = promisify(execFile);
-
-interface BeadItemData {
-  id: string;
-  title: string;
-  filePath?: string;
-  status?: string;
-  tags?: string[];
-  externalReferenceId?: string;
-  raw?: unknown;
-  idKey?: string;
-  externalReferenceKey?: string;
-}
 
 interface BeadsDocument {
   filePath: string;
@@ -98,13 +95,11 @@ class BeadsTreeDataProvider implements vscode.TreeDataProvider<BeadTreeItem> {
     const treeItem = new BeadTreeItem(item);
     treeItem.contextValue = 'bead';
 
-    if (item.filePath) {
-      treeItem.command = {
-        command: 'beads.openBead',
-        title: 'Open Bead',
-        arguments: [item],
-      };
-    }
+    treeItem.command = {
+      command: 'beads.openBead',
+      title: 'Open Bead',
+      arguments: [item],
+    };
 
     return treeItem;
   }
@@ -171,38 +166,6 @@ class BeadTreeItem extends vscode.TreeItem {
   }
 }
 
-function createTooltip(bead: BeadItemData): string {
-  const parts: string[] = [bead.title];
-  if (bead.status) {
-    parts.push(`Status: ${bead.status}`);
-  }
-  if (bead.filePath) {
-    parts.push(`File: ${bead.filePath}`);
-  }
-  if (bead.tags && bead.tags.length > 0) {
-    parts.push(`Tags: ${bead.tags.join(', ')}`);
-  }
-  if (bead.externalReferenceId) {
-    parts.push(`External Reference: ${bead.externalReferenceId}`);
-  }
-  return parts.join('\n');
-}
-
-async function loadBeads(): Promise<{ items: BeadItemData[]; document: BeadsDocument; }> {
-  const config = vscode.workspace.getConfiguration('beads');
-  const projectRoot = resolveProjectRoot(config);
-  const dataFileConfig = config.get<string>('dataFile', '.beads/beads.json');
-  const resolvedDataFile = resolveDataFilePath(dataFileConfig, projectRoot);
-
-  if (!resolvedDataFile) {
-    throw new Error('Unable to resolve beads data file. Set "beads.projectRoot" or provide an absolute "beads.dataFile" path.');
-  }
-
-  const document = await readBeadsDocument(resolvedDataFile);
-  const items = document.beads.map((entry, index) => normalizeBead(entry, index));
-  return { items, document };
-}
-
 function resolveProjectRoot(config: vscode.WorkspaceConfiguration): string | undefined {
   const projectRootConfig = config.get<string>('projectRoot');
   if (projectRootConfig && projectRootConfig.trim().length > 0) {
@@ -217,24 +180,32 @@ function resolveProjectRoot(config: vscode.WorkspaceConfiguration): string | und
   return undefined;
 }
 
-function resolveDataFilePath(dataFile: string, projectRoot: string | undefined): string | undefined {
-  if (!dataFile || dataFile.trim().length === 0) {
-    return undefined;
+async function loadBeads(): Promise<{ items: BeadItemData[]; document: BeadsDocument; }> {
+  const config = vscode.workspace.getConfiguration('beads');
+  const projectRoot = resolveProjectRoot(config);
+  const dataFileConfig = config.get<string>('dataFile', '.beads/issues.jsonl');
+  const resolvedDataFile = resolveDataFilePath(dataFileConfig, projectRoot);
+
+  if (!resolvedDataFile) {
+    throw new Error('Unable to resolve beads data file. Set "beads.projectRoot" or provide an absolute "beads.dataFile" path.');
   }
 
-  if (path.isAbsolute(dataFile)) {
-    return dataFile;
-  }
-
-  if (!projectRoot) {
-    return undefined;
-  }
-
-  return path.join(projectRoot, dataFile);
+  const document = await readBeadsDocument(resolvedDataFile);
+  const items = document.beads.map((entry, index) => normalizeBead(entry, index));
+  return { items, document };
 }
 
 async function readBeadsDocument(filePath: string): Promise<BeadsDocument> {
   const rawContent = await fs.readFile(filePath, 'utf8');
+
+  // Check if it's JSONL format (each line is a JSON object)
+  if (filePath.endsWith('.jsonl')) {
+    const lines = rawContent.trim().split('\n').filter(line => line.trim().length > 0);
+    const beads = lines.map(line => JSON.parse(line));
+    return { filePath, root: beads, beads };
+  }
+
+  // Otherwise assume it's JSON format
   const root = JSON.parse(rawContent);
   const beads = extractBeads(root);
 
@@ -246,138 +217,219 @@ async function readBeadsDocument(filePath: string): Promise<BeadsDocument> {
 }
 
 async function saveBeadsDocument(document: BeadsDocument): Promise<void> {
-  const serialized = JSON.stringify(document.root, null, 2);
-  const content = serialized.endsWith('\n') ? serialized : `${serialized}\n`;
-  await fs.writeFile(document.filePath, content, 'utf8');
+  // Check if it's JSONL format
+  if (document.filePath.endsWith('.jsonl')) {
+    const lines = document.beads.map(bead => JSON.stringify(bead)).join('\n');
+    const content = lines.endsWith('\n') ? lines : `${lines}\n`;
+    await fs.writeFile(document.filePath, content, 'utf8');
+  } else {
+    const serialized = JSON.stringify(document.root, null, 2);
+    const content = serialized.endsWith('\n') ? serialized : `${serialized}\n`;
+    await fs.writeFile(document.filePath, content, 'utf8');
+  }
 }
 
-function extractBeads(root: unknown): any[] | undefined {
-  if (Array.isArray(root)) {
-    return root;
-  }
+function getBeadDetailHtml(item: BeadItemData): string {
+  const raw = item.raw as any;
+  const description = raw?.description || '';
+  const issueType = raw?.issue_type || '';
+  const priority = raw?.priority || '';
+  const createdAt = raw?.created_at ? new Date(raw.created_at).toLocaleString() : '';
+  const updatedAt = raw?.updated_at ? new Date(raw.updated_at).toLocaleString() : '';
+  const dependencies = raw?.dependencies || [];
+  const assignee = raw?.assignee || '';
 
-  if (root && typeof root === 'object') {
-    const record = root as Record<string, unknown>;
-    if (Array.isArray(record.beads)) {
-      return record.beads as any[];
-    }
+  const statusColor = {
+    'open': '#3794ff',
+    'in_progress': '#f9c513',
+    'blocked': '#f14c4c',
+    'closed': '#73c991'
+  }[item.status || 'open'] || '#666';
 
-    const project = record.project;
-    if (project && typeof project === 'object') {
-      const projectBeads = (project as Record<string, unknown>).beads;
-      if (Array.isArray(projectBeads)) {
-        return projectBeads as any[];
-      }
-    }
-  }
+  const priorityLabel = ['', 'P1', 'P2', 'P3', 'P4'][priority] || '';
 
-  return undefined;
-}
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${item.id}</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            font-size: var(--vscode-font-size);
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+            padding: 20px;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .header {
+            border-bottom: 1px solid var(--vscode-panel-border);
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+        }
+        .issue-id {
+            font-size: 14px;
+            color: var(--vscode-descriptionForeground);
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+        }
+        .metadata {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 12px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-badge {
+            background-color: ${statusColor}22;
+            color: ${statusColor};
+            border: 1px solid ${statusColor}44;
+        }
+        .type-badge {
+            background-color: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+        }
+        .priority-badge {
+            background-color: var(--vscode-inputValidation-warningBackground);
+            color: var(--vscode-inputValidation-warningForeground);
+            border: 1px solid var(--vscode-inputValidation-warningBorder);
+        }
+        .section {
+            margin: 24px 0;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--vscode-foreground);
+        }
+        .description {
+            white-space: pre-wrap;
+            background-color: var(--vscode-textBlockQuote-background);
+            border-left: 4px solid var(--vscode-textBlockQuote-border);
+            padding: 12px 16px;
+            border-radius: 4px;
+        }
+        .meta-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .meta-label {
+            font-weight: 600;
+            color: var(--vscode-descriptionForeground);
+            min-width: 120px;
+        }
+        .meta-value {
+            color: var(--vscode-foreground);
+        }
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .tag {
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .dependency-item {
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--vscode-textLink-foreground);
+        }
+        .dependency-type {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        .empty {
+            color: var(--vscode-descriptionForeground);
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="issue-id">${item.id}</div>
+        <h1 class="title">${escapeHtml(item.title)}</h1>
+        <div class="metadata">
+            ${item.status ? `<span class="badge status-badge">${item.status.toUpperCase()}</span>` : ''}
+            ${issueType ? `<span class="badge type-badge">${issueType.toUpperCase()}</span>` : ''}
+            ${priorityLabel ? `<span class="badge priority-badge">${priorityLabel}</span>` : ''}
+        </div>
+    </div>
 
-function normalizeBead(entry: any, index = 0): BeadItemData {
-  const { value: id, key: idKey } = pickFirstKey(entry, ['id', 'uuid', 'beadId']);
-  const title = pickValue(entry, ['title', 'name'], id ?? `bead-${index}`) ?? `bead-${index}`;
-  const filePath = pickValue(entry, ['file', 'path', 'filename']);
-  const status = pickValue(entry, ['status', 'state']);
-  const tags = pickTags(entry);
-  const { value: externalReferenceId, key: externalReferenceKey } = pickFirstKey(entry, [
-    'external_reference_id',
-    'externalReferenceId',
-    'external_reference',
-    'externalRefId',
-  ]);
+    ${description ? `
+    <div class="section">
+        <div class="section-title">Description</div>
+        <div class="description">${escapeHtml(description)}</div>
+    </div>
+    ` : ''}
 
-  return {
-    id: id ?? `bead-${index}`,
-    idKey,
-    title,
-    filePath,
-    status,
-    tags,
-    externalReferenceId,
-    externalReferenceKey,
-    raw: entry,
-  };
-}
+    <div class="section">
+        <div class="section-title">Details</div>
+        ${assignee ? `<div class="meta-item"><span class="meta-label">Assignee:</span><span class="meta-value">${escapeHtml(assignee)}</span></div>` : ''}
+        ${item.externalReferenceId ? `<div class="meta-item"><span class="meta-label">External Ref:</span><span class="meta-value">${escapeHtml(item.externalReferenceId)}</span></div>` : ''}
+        ${createdAt ? `<div class="meta-item"><span class="meta-label">Created:</span><span class="meta-value">${createdAt}</span></div>` : ''}
+        ${updatedAt ? `<div class="meta-item"><span class="meta-label">Updated:</span><span class="meta-value">${updatedAt}</span></div>` : ''}
+    </div>
 
-function pickValue(entry: any, keys: string[], fallback?: string): string | undefined {
-  if (!entry || typeof entry !== 'object') {
-    return fallback;
-  }
+    ${item.tags && item.tags.length > 0 ? `
+    <div class="section">
+        <div class="section-title">Labels</div>
+        <div class="tags">
+            ${item.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
+        </div>
+    </div>
+    ` : ''}
 
-  for (const key of keys) {
-    if (key in entry) {
-      const value = entry[key];
-      if (value === undefined || value === null) {
-        continue;
-      }
-      return String(value);
-    }
-  }
-
-  return fallback;
-}
-
-function pickFirstKey(entry: any, keys: string[]): { value?: string; key?: string } {
-  if (!entry || typeof entry !== 'object') {
-    return {};
-  }
-
-  for (const key of keys) {
-    if (key in entry) {
-      const value = entry[key];
-      if (value === undefined || value === null) {
-        continue;
-      }
-      return { value: String(value), key };
-    }
-  }
-
-  return {};
-}
-
-function pickTags(entry: any): string[] | undefined {
-  if (!entry || typeof entry !== 'object') {
-    return undefined;
-  }
-
-  const candidate = entry.tags ?? entry.tag_list ?? entry.labels;
-  if (!candidate) {
-    return undefined;
-  }
-
-  if (Array.isArray(candidate)) {
-    return candidate.map((tag) => String(tag));
-  }
-
-  if (typeof candidate === 'string') {
-    return candidate
-      .split(',')
-      .map((tag: string) => tag.trim())
-      .filter((tag: string) => tag.length > 0);
-  }
-
-  return undefined;
-}
-
-function formatError(prefix: string, error: unknown): string {
-  if (error instanceof Error) {
-    return `${prefix}: ${error.message}`;
-  }
-  return prefix;
+    ${dependencies && dependencies.length > 0 ? `
+    <div class="section">
+        <div class="section-title">Dependencies</div>
+        ${dependencies.map((dep: any) => `
+            <div class="dependency-item">
+                <div class="dependency-type">${dep.type || 'blocks'}</div>
+                <div>${dep.depends_on_id || dep.issue_id}</div>
+            </div>
+        `).join('')}
+    </div>
+    ` : ''}
+</body>
+</html>`;
 }
 
 async function openBead(item: BeadItemData): Promise<void> {
-  if (!item.filePath) {
-    void vscode.window.showWarningMessage('This bead does not have an associated file to open.');
-    return;
-  }
-  try {
-    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(item.filePath));
-    await vscode.window.showTextDocument(document, { preview: false });
-  } catch (error) {
-    void vscode.window.showErrorMessage(formatError('Failed to open bead file', error));
-  }
+  const panel = vscode.window.createWebviewPanel(
+    'beadDetail',
+    item.id,
+    vscode.ViewColumn.One,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+    }
+  );
+
+  panel.webview.html = getBeadDetailHtml(item);
 }
 
 async function createBead(): Promise<void> {
