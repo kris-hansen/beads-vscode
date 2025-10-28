@@ -114,7 +114,32 @@ describe('Utility Functions', () => {
       assert.strictEqual(result.status, 'open');
       assert.deepStrictEqual(result.tags, ['bug', 'feature']);
       assert.strictEqual(result.externalReferenceId, 'EXT-123');
+      assert.strictEqual(result.externalReferenceDescription, undefined);
       assert.strictEqual(result.raw, entry);
+    });
+
+    it('should parse external_ref with description', () => {
+      const entry = {
+        id: 'BEAD-1',
+        title: 'Test Bead',
+        external_ref: 'ERE-1835:external-id-contracts'
+      };
+      const result = normalizeBead(entry, 0);
+
+      assert.strictEqual(result.externalReferenceId, 'ERE-1835');
+      assert.strictEqual(result.externalReferenceDescription, 'external-id-contracts');
+    });
+
+    it('should handle external_ref with only ID', () => {
+      const entry = {
+        id: 'BEAD-1',
+        title: 'Test Bead',
+        external_ref: 'EXT-123'
+      };
+      const result = normalizeBead(entry, 0);
+
+      assert.strictEqual(result.externalReferenceId, 'EXT-123');
+      assert.strictEqual(result.externalReferenceDescription, undefined);
     });
 
     it('should generate fallback id if missing', () => {

@@ -157,14 +157,26 @@ class BeadTreeItem extends vscode.TreeItem {
       parts.push(bead.tags.join(', '));
     }
     if (bead.externalReferenceId) {
-      parts.push(bead.externalReferenceId);
+      if (bead.externalReferenceDescription) {
+        parts.push(`${bead.externalReferenceId} (${bead.externalReferenceDescription})`);
+      } else {
+        parts.push(bead.externalReferenceId);
+      }
     }
     if (parts.length > 0) {
       this.description = parts.join(' · ');
     }
 
     this.tooltip = createTooltip(bead);
-    this.iconPath = new vscode.ThemeIcon('symbol-event');
+
+    // Use different icons based on status
+    if (bead.status === 'closed') {
+      this.iconPath = new vscode.ThemeIcon('pass', new vscode.ThemeColor('testing.iconPassed'));
+    } else if (bead.status === 'in_progress') {
+      this.iconPath = new vscode.ThemeIcon('clock', new vscode.ThemeColor('charts.yellow'));
+    } else {
+      this.iconPath = new vscode.ThemeIcon('symbol-event');
+    }
   }
 }
 
@@ -215,6 +227,49 @@ function naturalSort(a: BeadItemData, b: BeadItemData): number {
 async function loadBeads(): Promise<{ items: BeadItemData[]; document: BeadsDocument; }> {
   const config = vscode.workspace.getConfiguration('beads');
   const projectRoot = resolveProjectRoot(config);
+  const commandPath = config.get<string>('commandPath', 'bd');
+
+  if (!projectRoot) {
+    throw new Error('Unable to resolve project root. Set "beads.projectRoot" or open a workspace folder.');
+  }
+
+  try {
+    // Use beads CLI to query the database directly
+    const { stdout } = await execFileAsync(commandPath, ['list', '--json'], {
+      cwd: projectRoot,
+      maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large issue lists
+    });
+
+    // Parse the JSON output
+    let beads: any[] = [];
+    if (stdout && stdout.trim()) {
+      const parsed = JSON.parse(stdout);
+      beads = Array.isArray(parsed) ? parsed : [];
+    }
+
+    // Create a document structure for compatibility
+    const dataFileConfig = config.get<string>('dataFile', '.beads/issues.jsonl');
+    const resolvedDataFile = resolveDataFilePath(dataFileConfig, projectRoot) || path.join(projectRoot, '.beads/issues.jsonl');
+    const document: BeadsDocument = {
+      filePath: resolvedDataFile,
+      root: beads,
+      beads
+    };
+
+    const items = beads.map((entry, index) => normalizeBead(entry, index));
+
+    // Sort items using natural sort (handles numeric parts correctly)
+    items.sort(naturalSort);
+
+    return { items, document };
+  } catch (error: any) {
+    // Fallback to reading JSON file if CLI command fails
+    console.warn('Failed to load beads via CLI, falling back to file reading:', error.message);
+    return loadBeadsFromFile(projectRoot, config);
+  }
+}
+
+async function loadBeadsFromFile(projectRoot: string, config: vscode.WorkspaceConfiguration): Promise<{ items: BeadItemData[]; document: BeadsDocument; }> {
   const dataFileConfig = config.get<string>('dataFile', '.beads/issues.jsonl');
   const resolvedDataFile = resolveDataFilePath(dataFileConfig, projectRoot);
 
@@ -283,6 +338,11 @@ function getBeadDetailHtml(item: BeadItemData): string {
   }[item.status || 'open'] || '#666';
 
   const priorityLabel = ['', 'P1', 'P2', 'P3', 'P4'][priority] || '';
+
+  // Format status for display
+  const statusDisplay = item.status
+    ? item.status.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -409,7 +469,7 @@ function getBeadDetailHtml(item: BeadItemData): string {
         <div class="issue-id">${item.id}</div>
         <h1 class="title">${escapeHtml(item.title)}</h1>
         <div class="metadata">
-            ${item.status ? `<span class="badge status-badge">${item.status.toUpperCase()}</span>` : ''}
+            ${statusDisplay ? `<span class="badge status-badge">${statusDisplay}</span>` : ''}
             ${issueType ? `<span class="badge type-badge">${issueType.toUpperCase()}</span>` : ''}
             ${priorityLabel ? `<span class="badge priority-badge">${priorityLabel}</span>` : ''}
         </div>
@@ -425,7 +485,8 @@ function getBeadDetailHtml(item: BeadItemData): string {
     <div class="section">
         <div class="section-title">Details</div>
         ${assignee ? `<div class="meta-item"><span class="meta-label">Assignee:</span><span class="meta-value">${escapeHtml(assignee)}</span></div>` : ''}
-        ${item.externalReferenceId ? `<div class="meta-item"><span class="meta-label">External Ref:</span><span class="meta-value">${escapeHtml(item.externalReferenceId)}</span></div>` : ''}
+        ${item.externalReferenceId ? `<div class="meta-item"><span class="meta-label">External ID:</span><span class="meta-value">${escapeHtml(item.externalReferenceId)}</span></div>` : ''}
+        ${item.externalReferenceDescription ? `<div class="meta-item"><span class="meta-label">External Desc:</span><span class="meta-value">${escapeHtml(item.externalReferenceDescription)}</span></div>` : ''}
         ${createdAt ? `<div class="meta-item"><span class="meta-label">Created:</span><span class="meta-value">${createdAt}</span></div>` : ''}
         ${updatedAt ? `<div class="meta-item"><span class="meta-label">Updated:</span><span class="meta-value">${updatedAt}</span></div>` : ''}
     </div>
@@ -434,13 +495,7 @@ function getBeadDetailHtml(item: BeadItemData): string {
     <div class="section">
         <div class="section-title">Labels</div>
         <div class="tags">
-            ${item.tags.map(tag => {
-                // If this is an external-reference tag and we have an external reference ID, show both
-                if (tag === 'external-reference' && item.externalReferenceId) {
-                    return `<span class="tag" title="${escapeHtml(item.externalReferenceId)}">${escapeHtml(tag)}: ${escapeHtml(item.externalReferenceId)}</span>`;
-                }
-                return `<span class="tag">${escapeHtml(tag)}</span>`;
-            }).join('')}
+            ${item.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
         </div>
     </div>
     ` : ''}
@@ -509,10 +564,17 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
+      // Construct the current value from ID and description
+      const currentValue = item.externalReferenceId
+        ? (item.externalReferenceDescription
+          ? `${item.externalReferenceId}:${item.externalReferenceDescription}`
+          : item.externalReferenceId)
+        : '';
+
       const newValue = await vscode.window.showInputBox({
-        prompt: 'Set the external reference identifier for this bead',
-        value: item.externalReferenceId ?? '',
-        placeHolder: 'Enter an ID or leave empty to remove',
+        prompt: 'Set the external reference for this bead (format: ID:description)',
+        value: currentValue,
+        placeHolder: 'Enter "ID:description" or leave empty to remove',
       });
 
       if (newValue === undefined) {

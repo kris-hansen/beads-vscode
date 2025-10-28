@@ -7,6 +7,7 @@ export interface BeadItemData {
   status?: string;
   tags?: string[];
   externalReferenceId?: string;
+  externalReferenceDescription?: string;
   raw?: unknown;
   idKey?: string;
   externalReferenceKey?: string;
@@ -78,13 +79,22 @@ export function normalizeBead(entry: any, index = 0): BeadItemData {
   const filePath = pickValue(entry, ['file', 'path', 'filename']);
   const status = pickValue(entry, ['status', 'state']);
   const tags = pickTags(entry);
-  const { value: externalReferenceId, key: externalReferenceKey } = pickFirstKey(entry, [
+  const { value: externalReferenceRaw, key: externalReferenceKey } = pickFirstKey(entry, [
     'external_reference_id',
     'externalReferenceId',
     'external_ref',
     'external_reference',
     'externalRefId',
   ]);
+
+  // Parse external_ref format: "ID:description"
+  let externalReferenceId: string | undefined;
+  let externalReferenceDescription: string | undefined;
+  if (externalReferenceRaw) {
+    const parts = externalReferenceRaw.split(':', 2);
+    externalReferenceId = parts[0];
+    externalReferenceDescription = parts.length > 1 ? parts[1] : undefined;
+  }
 
   return {
     id: id ?? `bead-${index}`,
@@ -94,6 +104,7 @@ export function normalizeBead(entry: any, index = 0): BeadItemData {
     status,
     tags,
     externalReferenceId,
+    externalReferenceDescription,
     externalReferenceKey,
     raw: entry,
   };
@@ -169,7 +180,11 @@ export function createTooltip(bead: BeadItemData): string {
     parts.push(`Tags: ${bead.tags.join(', ')}`);
   }
   if (bead.externalReferenceId) {
-    parts.push(`External Reference: ${bead.externalReferenceId}`);
+    if (bead.externalReferenceDescription) {
+      parts.push(`External Reference: ${bead.externalReferenceId} (${bead.externalReferenceDescription})`);
+    } else {
+      parts.push(`External Reference: ${bead.externalReferenceId}`);
+    }
   }
   return parts.join('\n');
 }
