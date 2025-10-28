@@ -115,8 +115,9 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint . --ext ts",
-    "test": "npm run compile && node ./out/test/runTest.js",
+    "test": "npm run test:unit",
     "test:unit": "npm run compile && mocha ./out/test/unit/**/*.test.js",
+    "test:integration": "npm run compile && node ./out/test/runTest.js",
     "package": "vsce package",
     "publish": "vsce publish"
   },

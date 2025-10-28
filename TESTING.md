@@ -22,21 +22,26 @@ Pure unit tests that test utility functions without requiring VSCode runtime.
 
 Tests that require the VSCode extension host to run. These test the full extension functionality including commands and tree providers.
 
-**Run with:** `npm test`
+**Run with:** `npm run test:integration`
 
 **Coverage:**
 - Extension activation
 - Command registration
 - File handling (JSONL and JSON formats)
 
+**Note for macOS users:** Integration tests may fail on certain macOS versions due to compatibility issues with the `@vscode/test-electron` package. This is a known limitation. Unit tests provide comprehensive coverage of core functionality and are the primary test suite.
+
 ## Running Tests
 
 ```bash
-# Run only unit tests (fast, no VSCode required)
+# Run unit tests (default, fast, no VSCode required)
+npm test
+
+# Or explicitly run unit tests
 npm run test:unit
 
-# Run all tests (including VSCode integration tests)
-npm test
+# Run integration tests (requires VSCode, may not work on all macOS versions)
+npm run test:integration
 
 # Watch mode during development
 npm run watch
@@ -45,8 +50,8 @@ npm run watch
 ## Test Files
 
 - `src/test/unit/utils.test.ts` - Unit tests for utility functions
-- `src/test/suite/extension.test.ts` - Extension activation and command tests
-- `src/test/suite/fileHandling.test.ts` - File I/O tests (JSONL and JSON)
+- `src/test/suite/extension.test.ts` - Integration: Extension activation and command tests
+- `src/test/suite/fileHandling.test.ts` - Integration: File I/O tests (JSONL and JSON)
 
 ## Writing New Tests
 
@@ -97,7 +102,7 @@ Currently, the test suite covers:
 Tests should be run as part of CI/CD before merging:
 
 ```bash
-npm run compile && npm run lint && npm run test:unit
+npm run compile && npm run lint && npm test
 ```
 
-Note: Full integration tests (`npm test`) may require a display/GUI environment and may not work in all CI environments. Unit tests provide good coverage without this requirement.
+The default `npm test` runs unit tests which are fast, reliable, and work across all platforms including macOS. Integration tests require a display/GUI environment and may not work in all CI environments or on all macOS versions.

@@ -42,11 +42,11 @@ npm run compile
 Run the test suite:
 
 ```bash
-# Run unit tests (fast, no VSCode required)
-npm run test:unit
-
-# Run all tests including integration tests
+# Run unit tests (default, fast, no VSCode required)
 npm test
+
+# Run integration tests (requires VSCode, may not work on all macOS versions)
+npm run test:integration
 
 # Run linter
 npm run lint

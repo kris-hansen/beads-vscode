@@ -79,9 +79,9 @@ export function normalizeBead(entry: any, index = 0): BeadItemData {
   const status = pickValue(entry, ['status', 'state']);
   const tags = pickTags(entry);
   const { value: externalReferenceId, key: externalReferenceKey } = pickFirstKey(entry, [
-    'external_ref',
     'external_reference_id',
     'externalReferenceId',
+    'external_ref',
     'external_reference',
     'externalRefId',
   ]);

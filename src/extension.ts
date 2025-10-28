@@ -434,7 +434,13 @@ function getBeadDetailHtml(item: BeadItemData): string {
     <div class="section">
         <div class="section-title">Labels</div>
         <div class="tags">
-            ${item.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
+            ${item.tags.map(tag => {
+                // If this is an external-reference tag and we have an external reference ID, show both
+                if (tag === 'external-reference' && item.externalReferenceId) {
+                    return `<span class="tag" title="${escapeHtml(item.externalReferenceId)}">${escapeHtml(tag)}: ${escapeHtml(item.externalReferenceId)}</span>`;
+                }
+                return `<span class="tag">${escapeHtml(tag)}</span>`;
+            }).join('')}
         </div>
     </div>
     ` : ''}
