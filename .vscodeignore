@@ -9,3 +9,5 @@ src/**
 tsconfig.json
 .eslintignore
 **/*.ts
+.beads/**
+.claude/**

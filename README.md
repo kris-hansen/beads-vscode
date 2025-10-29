@@ -37,4 +37,44 @@ npm install
 npm run compile
 ```
 
+### Testing
+
+Run the test suite:
+
+```bash
+# Run unit tests (default, fast, no VSCode required)
+npm test
+
+# Run integration tests (requires VSCode, may not work on all macOS versions)
+npm run test:integration
+
+# Run linter
+npm run lint
+```
+
+See [TESTING.md](TESTING.md) for more information about the test infrastructure.
+
+### Running the Extension
+
 Launch the extension using the **Run > Start Debugging** command in VS Code. This will open a new Extension Development Host window with the Beads explorer view.
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Distribution
+
+See [DISTRIBUTION.md](DISTRIBUTION.md) for information on:
+- Publishing to VS Code Marketplace
+- Creating GitHub releases
+- Local installation methods
+- Setting up continuous deployment
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Resources
+
+- [Beads CLI](https://github.com/steveyegge/beads) - The core Beads project management tool
+- [VS Code Extension API](https://code.visualstudio.com/api) - For contributing to this extension

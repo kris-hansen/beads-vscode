@@ -4,6 +4,21 @@
   "description": "Manage Beads projects directly from VS Code.",
   "version": "0.0.1",
   "publisher": "beads",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kris-hansen/beads-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kris-hansen/beads-vscode/issues"
+  },
+  "homepage": "https://github.com/kris-hansen/beads-vscode#readme",
+  "keywords": [
+    "beads",
+    "project-management",
+    "issue-tracker",
+    "task-management"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -11,18 +26,15 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:beadsExplorer",
-    "onCommand:beads.refresh",
-    "onCommand:beads.openBead",
-    "onCommand:beads.createBead",
-    "onCommand:beads.editExternalReference"
+    "onView:beadsExplorer"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "beads.refresh",
-        "title": "Beads: Refresh"
+        "title": "Beads: Refresh",
+        "icon": "$(refresh)"
       },
       {
         "command": "beads.openBead",
@@ -30,18 +42,28 @@
       },
       {
         "command": "beads.createBead",
-        "title": "Beads: Create"
+        "title": "Beads: Create",
+        "icon": "$(add)"
       },
       {
         "command": "beads.editExternalReference",
         "title": "Beads: Edit External Reference"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "beads",
+          "title": "Beads",
+          "icon": "$(symbol-event)"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "beads": [
         {
           "id": "beadsExplorer",
-          "name": "Beads"
+          "name": "Issues"
         }
       ]
     },
@@ -61,12 +83,24 @@
         },
         "beads.dataFile": {
           "type": "string",
-          "default": ".beads/beads.json",
-          "description": "Path to the beads data JSON file (relative to the project root or absolute)"
+          "default": ".beads/issues.jsonl",
+          "description": "Path to the beads data JSONL file (relative to the project root or absolute)"
         }
       }
     },
     "menus": {
+      "view/title": [
+        {
+          "command": "beads.refresh",
+          "when": "view == beadsExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "beads.createBead",
+          "when": "view == beadsExplorer",
+          "group": "navigation@2"
+        }
+      ],
       "view/item/context": [
         {
           "command": "beads.editExternalReference",
@@ -81,15 +115,24 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint . --ext ts",
-    "test": "npm run compile && node ./out/test/runTest.js"
+    "test": "npm run test:unit",
+    "test:unit": "npm run compile && mocha ./out/test/unit/**/*.test.js",
+    "test:integration": "npm run compile && node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.6",
     "@types/node": "^18.19.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^3.6.2",
     "eslint": "^8.56.0",
-    "typescript": "^5.3.3",
-    "vscode-test": "^1.7.5"
+    "glob": "^10.3.10",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.3"
   }
 }
