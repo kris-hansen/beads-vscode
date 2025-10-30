@@ -699,6 +699,457 @@ function getBeadDetailHtml(item: BeadItemData): string {
 </html>`;
 }
 
+function getDependencyTreeHtml(items: BeadItemData[]): string {
+  // Build dependency graph
+  const nodeMap = new Map<string, BeadItemData>();
+  const edges: Array<{from: string, to: string, type: string}> = [];
+
+  items.forEach(item => {
+    nodeMap.set(item.id, item);
+    const raw = item.raw as any;
+    const dependencies = raw?.dependencies || [];
+
+    dependencies.forEach((dep: any) => {
+      const depType = dep.dep_type || dep.type || 'related';
+      const targetId = dep.id || dep.depends_on_id || dep.issue_id;
+      if (targetId) {
+        edges.push({
+          from: item.id,
+          to: targetId,
+          type: depType
+        });
+      }
+    });
+  });
+
+  // Serialize data for JavaScript, sorted by ID (descending order naturally)
+  const sortedNodes = Array.from(nodeMap.entries())
+    .sort(([idA], [idB]) => {
+      // Extract numeric parts for proper numerical sorting
+      const numA = parseInt(idA.match(/\d+/)?.[0] || '0', 10);
+      const numB = parseInt(idB.match(/\d+/)?.[0] || '0', 10);
+      return numA - numB;
+    })
+    .map(([id, item]) => ({
+      id,
+      title: item.title,
+      status: item.status || 'open'
+    }));
+
+  const nodesJson = JSON.stringify(sortedNodes);
+  const edgesJson = JSON.stringify(edges);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beads Dependency Tree</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            font-size: var(--vscode-font-size);
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100%;
+            height: calc(100vh - 60px);
+            position: relative;
+            overflow: auto;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            min-width: 100%;
+            min-height: 100%;
+            z-index: 10;
+        }
+
+        .node {
+            position: absolute;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 2px solid;
+            background-color: #1e1e1e;
+            cursor: pointer;
+            min-width: 120px;
+            text-align: center;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+        }
+
+        .node:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 20;
+        }
+
+        .node.status-closed {
+            border-color: #73c991;
+            background-color: #1e1e1e;
+        }
+
+        .node.status-in_progress {
+            border-color: #f9c513;
+            background-color: #1e1e1e;
+        }
+
+        .node.status-open {
+            border-color: #ff8c00;
+            background-color: #1e1e1e;
+        }
+
+        .node.status-blocked {
+            border-color: #f14c4c;
+            background-color: #1e1e1e;
+        }
+
+        .node-id {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+
+        .node-title {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .status-indicator.closed {
+            background-color: #73c991;
+        }
+
+        .status-indicator.in_progress {
+            background-color: #f9c513;
+        }
+
+        .status-indicator.open {
+            background-color: #ff8c00;
+        }
+
+        .status-indicator.blocked {
+            background-color: #f14c4c;
+        }
+
+        svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .edge {
+            stroke: var(--vscode-panel-border);
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+            opacity: 0.8;
+        }
+
+        .edge.blocks {
+            stroke: #f14c4c;
+            stroke-width: 2.5;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .control-button {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .control-button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--vscode-sideBar-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 11px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button class="control-button" onclick="resetZoom()">Reset View</button>
+        <button class="control-button" onclick="autoLayout()">Auto Layout</button>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <span class="status-indicator closed"></span>
+            <span>Closed</span>
+        </div>
+        <div class="legend-item">
+            <span class="status-indicator in_progress"></span>
+            <span>In Progress</span>
+        </div>
+        <div class="legend-item">
+            <span class="status-indicator open"></span>
+            <span>Open</span>
+        </div>
+        <div class="legend-item">
+            <span class="status-indicator blocked"></span>
+            <span>Blocked</span>
+        </div>
+    </div>
+
+    <div id="container">
+        <svg id="svg"></svg>
+        <div id="canvas"></div>
+    </div>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+        const nodes = ${nodesJson};
+        const edges = ${edgesJson};
+
+        const nodeElements = new Map();
+        const nodePositions = new Map();
+
+        // Simple tree layout algorithm
+        function calculateLayout() {
+            const levels = new Map();
+            const visited = new Set();
+            const outDegree = new Map();
+
+            // Calculate out-degrees (how many dependencies each node has)
+            nodes.forEach(node => outDegree.set(node.id, 0));
+            edges.forEach(edge => {
+                outDegree.set(edge.from, (outDegree.get(edge.from) || 0) + 1);
+            });
+
+            // Find leaf nodes (nodes with no outgoing edges - no dependencies)
+            // These should be at the TOP of the tree
+            const leaves = nodes.filter(node => outDegree.get(node.id) === 0);
+
+            // If no leaves, pick nodes with minimal out-degree
+            if (leaves.length === 0) {
+                const minOutDegree = Math.min(...Array.from(outDegree.values()));
+                leaves.push(...nodes.filter(node => outDegree.get(node.id) === minOutDegree));
+            }
+
+            // BFS to assign levels, traversing backwards through dependencies
+            const queue = leaves.map(node => ({node, level: 0}));
+            leaves.forEach(node => visited.add(node.id));
+
+            while (queue.length > 0) {
+                const {node, level} = queue.shift();
+
+                if (!levels.has(level)) {
+                    levels.set(level, []);
+                }
+                levels.get(level).push(node);
+
+                // Find parents (nodes that depend on this node)
+                const parents = edges
+                    .filter(edge => edge.to === node.id)
+                    .map(edge => nodes.find(n => n.id === edge.from))
+                    .filter(n => n && !visited.has(n.id));
+
+                parents.forEach(parent => {
+                    visited.add(parent.id);
+                    queue.push({node: parent, level: level + 1});
+                });
+            }
+
+            // Add unvisited nodes
+            nodes.forEach(node => {
+                if (!visited.has(node.id)) {
+                    const maxLevel = Math.max(...Array.from(levels.keys()), -1);
+                    const level = maxLevel + 1;
+                    if (!levels.has(level)) {
+                        levels.set(level, []);
+                    }
+                    levels.get(level).push(node);
+                }
+            });
+
+            // Calculate positions
+            const horizontalSpacing = 250;
+            const verticalSpacing = 120;
+            const startX = 100;
+            const startY = 100;
+
+            levels.forEach((nodesInLevel, level) => {
+                // Sort nodes within each level by their numeric ID
+                const sortedNodes = nodesInLevel.sort((a, b) => {
+                    const numA = parseInt(a.id.match(/\\d+/)?.[0] || '0', 10);
+                    const numB = parseInt(b.id.match(/\\d+/)?.[0] || '0', 10);
+                    return numA - numB;
+                });
+
+                sortedNodes.forEach((node, index) => {
+                    const x = startX + (index * horizontalSpacing);
+                    const y = startY + (level * verticalSpacing);
+                    nodePositions.set(node.id, {x, y});
+                });
+            });
+        }
+
+        function createNode(node) {
+            const div = document.createElement('div');
+            div.className = \`node status-\${node.status}\`;
+            div.innerHTML = \`
+                <div class="node-id">
+                    <span class="status-indicator \${node.status}"></span>
+                    \${node.id}
+                </div>
+                <div class="node-title" title="\${node.title}">\${node.title}</div>
+            \`;
+
+            div.addEventListener('click', () => {
+                vscode.postMessage({
+                    command: 'openBead',
+                    beadId: node.id
+                });
+            });
+
+            return div;
+        }
+
+        function drawEdge(from, to, type) {
+            const fromPos = nodePositions.get(from);
+            const toPos = nodePositions.get(to);
+
+            if (!fromPos || !toPos) return '';
+
+            const fromEl = nodeElements.get(from);
+            const toEl = nodeElements.get(to);
+
+            if (!fromEl || !toEl) return '';
+
+            const fromRect = fromEl.getBoundingClientRect();
+            const toRect = toEl.getBoundingClientRect();
+            const containerRect = document.getElementById('canvas').getBoundingClientRect();
+
+            const x1 = fromPos.x + (fromRect.width / 2);
+            const y1 = fromPos.y + fromRect.height;
+            const x2 = toPos.x + (toRect.width / 2);
+            const y2 = toPos.y;
+
+            // Draw curved line
+            const midY = (y1 + y2) / 2;
+            const path = \`M \${x1} \${y1} C \${x1} \${midY}, \${x2} \${midY}, \${x2} \${y2}\`;
+
+            return \`<path d="\${path}" class="edge \${type}" />\`;
+        }
+
+        function render() {
+            const canvas = document.getElementById('canvas');
+            const svg = document.getElementById('svg');
+
+            // Clear
+            canvas.innerHTML = '';
+            nodeElements.clear();
+
+            // Calculate layout
+            calculateLayout();
+
+            // Create nodes
+            nodes.forEach(node => {
+                const div = createNode(node);
+                const pos = nodePositions.get(node.id);
+                div.style.left = pos.x + 'px';
+                div.style.top = pos.y + 'px';
+                canvas.appendChild(div);
+                nodeElements.set(node.id, div);
+            });
+
+            // Calculate SVG size
+            let maxX = 0, maxY = 0;
+            nodePositions.forEach(pos => {
+                maxX = Math.max(maxX, pos.x + 250);
+                maxY = Math.max(maxY, pos.y + 100);
+            });
+
+            svg.setAttribute('width', maxX);
+            svg.setAttribute('height', maxY);
+            canvas.style.width = maxX + 'px';
+            canvas.style.height = maxY + 'px';
+
+            // Draw edges
+            setTimeout(() => {
+                const edgePaths = edges.map(edge =>
+                    drawEdge(edge.from, edge.to, edge.type)
+                ).join('');
+
+                svg.innerHTML = \`
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10"
+                                refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6"
+                                     fill="var(--vscode-panel-border)" />
+                        </marker>
+                    </defs>
+                    \${edgePaths}
+                \`;
+            }, 100);
+        }
+
+        function resetZoom() {
+            document.getElementById('container').scrollTo(0, 0);
+        }
+
+        function autoLayout() {
+            render();
+        }
+
+        // Initial render
+        render();
+    </script>
+</body>
+</html>`;
+}
+
 async function openBead(item: BeadItemData, provider: BeadsTreeDataProvider): Promise<void> {
   const panel = vscode.window.createWebviewPanel(
     'beadDetail',
@@ -755,6 +1206,38 @@ async function createBead(): Promise<void> {
   }
 }
 
+async function visualizeDependencies(provider: BeadsTreeDataProvider): Promise<void> {
+  const panel = vscode.window.createWebviewPanel(
+    'beadDependencyTree',
+    'Beads Dependency Tree',
+    vscode.ViewColumn.One,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+    }
+  );
+
+  // Get all items from the provider
+  const items = provider['items'] as BeadItemData[];
+
+  panel.webview.html = getDependencyTreeHtml(items);
+
+  // Handle messages from the webview
+  panel.webview.onDidReceiveMessage(
+    async (message) => {
+      switch (message.command) {
+        case 'openBead': {
+          const item = items.find((i: BeadItemData) => i.id === message.beadId);
+          if (item) {
+            await openBead(item, provider);
+          }
+          break;
+        }
+      }
+    }
+  );
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new BeadsTreeDataProvider(context);
   context.subscriptions.push(
@@ -762,6 +1245,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('beads.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('beads.openBead', (item: BeadItemData) => openBead(item, provider)),
     vscode.commands.registerCommand('beads.createBead', () => createBead()),
+    vscode.commands.registerCommand('beads.visualizeDependencies', () => visualizeDependencies(provider)),
     vscode.commands.registerCommand('beads.editExternalReference', async (item: BeadItemData) => {
       if (!item) {
         return;
