@@ -48,6 +48,11 @@
       {
         "command": "beads.editExternalReference",
         "title": "Beads: Edit External Reference"
+      },
+      {
+        "command": "beads.visualizeDependencies",
+        "title": "Beads: Visualize Dependencies",
+        "icon": "$(graph)"
       }
     ],
     "viewsContainers": {
@@ -99,6 +104,11 @@
           "command": "beads.createBead",
           "when": "view == beadsExplorer",
           "group": "navigation@2"
+        },
+        {
+          "command": "beads.visualizeDependencies",
+          "when": "view == beadsExplorer",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
