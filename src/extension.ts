@@ -115,6 +115,67 @@ class BeadsTreeDataProvider implements vscode.TreeDataProvider<BeadTreeItem> {
     }
   }
 
+  async addLabel(item: BeadItemData, label: string): Promise<void> {
+    if (!this.document) {
+      void vscode.window.showErrorMessage('Beads data is not loaded yet. Try refreshing the explorer.');
+      return;
+    }
+
+    if (!item.raw || typeof item.raw !== 'object') {
+      void vscode.window.showErrorMessage('Unable to update this bead entry because its data is not editable.');
+      return;
+    }
+
+    const mutable = item.raw as Record<string, unknown>;
+    let labels = mutable['labels'] as string[] | undefined;
+
+    if (!labels) {
+      labels = [];
+      mutable['labels'] = labels;
+    }
+
+    if (!labels.includes(label)) {
+      labels.push(label);
+
+      try {
+        await saveBeadsDocument(this.document);
+        await this.refresh();
+        void vscode.window.showInformationMessage(`Added label: ${label}`);
+      } catch (error) {
+        console.error('Failed to persist beads document', error);
+        void vscode.window.showErrorMessage(formatError('Failed to save beads data file', error));
+      }
+    }
+  }
+
+  async removeLabel(item: BeadItemData, label: string): Promise<void> {
+    if (!this.document) {
+      void vscode.window.showErrorMessage('Beads data is not loaded yet. Try refreshing the explorer.');
+      return;
+    }
+
+    if (!item.raw || typeof item.raw !== 'object') {
+      void vscode.window.showErrorMessage('Unable to update this bead entry because its data is not editable.');
+      return;
+    }
+
+    const mutable = item.raw as Record<string, unknown>;
+    let labels = mutable['labels'] as string[] | undefined;
+
+    if (labels && labels.includes(label)) {
+      mutable['labels'] = labels.filter(l => l !== label);
+
+      try {
+        await saveBeadsDocument(this.document);
+        await this.refresh();
+        void vscode.window.showInformationMessage(`Removed label: ${label}`);
+      } catch (error) {
+        console.error('Failed to persist beads document', error);
+        void vscode.window.showErrorMessage(formatError('Failed to save beads data file', error));
+      }
+    }
+  }
+
   private createTreeItem(item: BeadItemData): BeadTreeItem {
     const treeItem = new BeadTreeItem(item);
     treeItem.contextValue = 'bead';
@@ -542,6 +603,24 @@ function getBeadDetailHtml(item: BeadItemData): string {
             padding: 4px 10px;
             border-radius: 12px;
             font-size: 12px;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tag.editable {
+            padding-right: 8px;
+        }
+        .tag-remove {
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            opacity: 0.7;
+            line-height: 1;
+        }
+        .tag-remove:hover {
+            opacity: 1;
+            color: var(--vscode-errorForeground);
         }
         .dependency-item {
             background-color: var(--vscode-editor-inactiveSelectionBackground);
@@ -584,57 +663,6 @@ function getBeadDetailHtml(item: BeadItemData): string {
         </div>
     </div>
 
-    <script>
-        const vscode = acquireVsCodeApi();
-        let isEditMode = false;
-
-        const editButton = document.getElementById('editButton');
-        const statusBadge = document.getElementById('statusBadge');
-        const statusDropdown = document.getElementById('statusDropdown');
-
-        editButton.addEventListener('click', () => {
-            isEditMode = !isEditMode;
-
-            if (isEditMode) {
-                editButton.textContent = 'Done';
-                statusBadge.classList.add('editable');
-            } else {
-                editButton.textContent = 'Edit';
-                statusBadge.classList.remove('editable');
-                statusDropdown.classList.remove('show');
-            }
-        });
-
-        statusBadge.addEventListener('click', () => {
-            if (isEditMode) {
-                statusDropdown.classList.toggle('show');
-            }
-        });
-
-        document.querySelectorAll('.status-option').forEach(option => {
-            option.addEventListener('click', (e) => {
-                const newStatus = e.target.getAttribute('data-status');
-
-                // Send message to extension
-                vscode.postMessage({
-                    command: 'updateStatus',
-                    status: newStatus,
-                    issueId: '${item.id}'
-                });
-
-                // Close dropdown
-                statusDropdown.classList.remove('show');
-            });
-        });
-
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!statusBadge.contains(e.target) && !statusDropdown.contains(e.target)) {
-                statusDropdown.classList.remove('show');
-            }
-        });
-    </script>
-
     ${description ? `
     <div class="section">
         <div class="section-title">Description</div>
@@ -673,14 +701,18 @@ function getBeadDetailHtml(item: BeadItemData): string {
         ${closedAt ? `<div class="meta-item"><span class="meta-label">Closed:</span><span class="meta-value">${closedAt}</span></div>` : ''}
     </div>
 
-    ${labels && labels.length > 0 ? `
     <div class="section">
         <div class="section-title">Labels</div>
-        <div class="tags">
-            ${labels.map((label: string) => `<span class="tag">${escapeHtml(label)}</span>`).join('')}
+        <div class="tags" id="labelsContainer">
+            ${labels && labels.length > 0 ? labels.map((label: string) => `<span class="tag" data-label="${escapeHtml(label)}">${escapeHtml(label)}<span class="tag-remove" style="display: none;">×</span></span>`).join('') : '<span class="empty">No labels</span>'}
+        </div>
+        <div style="margin-top: 12px; display: none;" id="labelActions">
+            <button class="edit-button" id="addInReviewButton" style="margin-right: 8px;">
+                <span id="inReviewButtonText">Mark as In Review</span>
+            </button>
+            <button class="edit-button" id="addLabelButton">Add Label</button>
         </div>
     </div>
-    ` : ''}
 
     ${dependencies && dependencies.length > 0 ? `
     <div class="section">
@@ -695,6 +727,140 @@ function getBeadDetailHtml(item: BeadItemData): string {
         `).join('')}
     </div>
     ` : ''}
+
+    <script>
+        const vscode = acquireVsCodeApi();
+        let isEditMode = false;
+
+        const editButton = document.getElementById('editButton');
+        const statusBadge = document.getElementById('statusBadge');
+        const statusDropdown = document.getElementById('statusDropdown');
+
+        const labelActions = document.getElementById('labelActions');
+        const addInReviewButton = document.getElementById('addInReviewButton');
+        const addLabelButton = document.getElementById('addLabelButton');
+        const inReviewButtonText = document.getElementById('inReviewButtonText');
+        const labelsContainer = document.getElementById('labelsContainer');
+
+        console.log('DEBUG: labelActions element:', labelActions);
+        console.log('DEBUG: addInReviewButton element:', addInReviewButton);
+
+        const currentLabels = ${JSON.stringify(labels || [])};
+        const hasInReview = currentLabels.includes('in-review');
+
+        if (hasInReview) {
+            inReviewButtonText.textContent = 'Remove In Review';
+        }
+
+        editButton.addEventListener('click', () => {
+            isEditMode = !isEditMode;
+
+            if (isEditMode) {
+                editButton.textContent = 'Done';
+                statusBadge.classList.add('editable');
+                labelActions.style.display = 'block';
+
+                // Show remove buttons on labels
+                document.querySelectorAll('.tag-remove').forEach(btn => {
+                    btn.style.display = 'inline';
+                });
+                document.querySelectorAll('.tag').forEach(tag => {
+                    if (!tag.classList.contains('empty')) {
+                        tag.classList.add('editable');
+                    }
+                });
+            } else {
+                editButton.textContent = 'Edit';
+                statusBadge.classList.remove('editable');
+                statusDropdown.classList.remove('show');
+                labelActions.style.display = 'none';
+
+                // Hide remove buttons on labels
+                document.querySelectorAll('.tag-remove').forEach(btn => {
+                    btn.style.display = 'none';
+                });
+                document.querySelectorAll('.tag').forEach(tag => {
+                    tag.classList.remove('editable');
+                });
+            }
+        });
+
+        statusBadge.addEventListener('click', () => {
+            if (isEditMode) {
+                statusDropdown.classList.toggle('show');
+            }
+        });
+
+        document.querySelectorAll('.status-option').forEach(option => {
+            option.addEventListener('click', (e) => {
+                const newStatus = e.target.getAttribute('data-status');
+
+                // Send message to extension
+                vscode.postMessage({
+                    command: 'updateStatus',
+                    status: newStatus,
+                    issueId: '${item.id}'
+                });
+
+                // Close dropdown
+                statusDropdown.classList.remove('show');
+            });
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!statusBadge.contains(e.target) && !statusDropdown.contains(e.target)) {
+                statusDropdown.classList.remove('show');
+            }
+        });
+
+        // Handle "In Review" toggle button
+        addInReviewButton.addEventListener('click', () => {
+            const hasInReview = currentLabels.includes('in-review');
+
+            if (hasInReview) {
+                vscode.postMessage({
+                    command: 'removeLabel',
+                    label: 'in-review',
+                    issueId: '${item.id}'
+                });
+            } else {
+                vscode.postMessage({
+                    command: 'addLabel',
+                    label: 'in-review',
+                    issueId: '${item.id}'
+                });
+            }
+        });
+
+        // Handle custom label addition
+        addLabelButton.addEventListener('click', () => {
+            const label = prompt('Enter label name:');
+            if (label && label.trim()) {
+                vscode.postMessage({
+                    command: 'addLabel',
+                    label: label.trim(),
+                    issueId: '${item.id}'
+                });
+            }
+        });
+
+        // Handle label removal
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('tag-remove')) {
+                const tagElement = e.target.closest('.tag');
+                const label = tagElement.getAttribute('data-label');
+
+                if (label) {
+                    vscode.postMessage({
+                        command: 'removeLabel',
+                        label: label,
+                        issueId: '${item.id}'
+                    });
+                }
+            }
+        });
+    </script>
 </body>
 </html>`;
 }
@@ -1169,6 +1335,28 @@ async function openBead(item: BeadItemData, provider: BeadsTreeDataProvider): Pr
       switch (message.command) {
         case 'updateStatus': {
           await provider.updateStatus(item, message.status);
+          // Refresh the webview with updated data
+          await provider.refresh();
+          // Find the updated item
+          const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
+          if (updatedItem) {
+            panel.webview.html = getBeadDetailHtml(updatedItem);
+          }
+          break;
+        }
+        case 'addLabel': {
+          await provider.addLabel(item, message.label);
+          // Refresh the webview with updated data
+          await provider.refresh();
+          // Find the updated item
+          const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
+          if (updatedItem) {
+            panel.webview.html = getBeadDetailHtml(updatedItem);
+          }
+          break;
+        }
+        case 'removeLabel': {
+          await provider.removeLabel(item, message.label);
           // Refresh the webview with updated data
           await provider.refresh();
           // Find the updated item
