@@ -30,6 +30,8 @@ class BeadsTreeDataProvider implements vscode.TreeDataProvider<BeadTreeItem> {
   private fileWatcher: vscode.FileSystemWatcher | undefined;
   private watcherSubscriptions: vscode.Disposable[] = [];
   private watchedFilePath: string | undefined;
+  private openPanels: Map<string, vscode.WebviewPanel> = new Map();
+  private searchQuery: string = '';
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -46,7 +48,8 @@ class BeadsTreeDataProvider implements vscode.TreeDataProvider<BeadTreeItem> {
       await this.refresh();
     }
 
-    return this.items.map((item) => this.createTreeItem(item));
+    const filteredItems = this.filterItems(this.items);
+    return filteredItems.map((item) => this.createTreeItem(item));
   }
 
   async refresh(): Promise<void> {
@@ -56,10 +59,84 @@ class BeadsTreeDataProvider implements vscode.TreeDataProvider<BeadTreeItem> {
       this.document = result.document;
       this.ensureWatcher(result.document.filePath);
       this.onDidChangeTreeDataEmitter.fire();
+
+      // Refresh all open webview panels
+      this.refreshOpenPanels();
     } catch (error) {
       console.error('Failed to refresh beads', error);
       void vscode.window.showErrorMessage(formatError('Unable to refresh beads list', error));
     }
+  }
+
+  registerPanel(beadId: string, panel: vscode.WebviewPanel): void {
+    this.openPanels.set(beadId, panel);
+
+    panel.onDidDispose(() => {
+      this.openPanels.delete(beadId);
+    });
+  }
+
+  private refreshOpenPanels(): void {
+    this.openPanels.forEach((panel, beadId) => {
+      const updatedItem = this.items.find((i: BeadItemData) => i.id === beadId);
+      if (updatedItem) {
+        panel.webview.html = getBeadDetailHtml(updatedItem);
+      }
+    });
+  }
+
+  private filterItems(items: BeadItemData[]): BeadItemData[] {
+    if (!this.searchQuery) {
+      return items;
+    }
+
+    const query = this.searchQuery.toLowerCase();
+    return items.filter((item) => {
+      const raw = item.raw as any;
+      const searchableFields = [
+        item.id,
+        item.title,
+        raw?.description || '',
+        raw?.design || '',
+        raw?.acceptance_criteria || '',
+        raw?.notes || '',
+        raw?.assignee || '',
+        item.status || '',
+        raw?.issue_type || '',
+        ...(raw?.labels || []),
+        ...(item.tags || []),
+      ];
+
+      return searchableFields.some(field =>
+        String(field).toLowerCase().includes(query)
+      );
+    });
+  }
+
+  async search(): Promise<void> {
+    const query = await vscode.window.showInputBox({
+      prompt: 'Search beads by ID, title, description, labels, status, etc.',
+      placeHolder: 'Enter search query',
+      value: this.searchQuery,
+    });
+
+    if (query === undefined) {
+      return;
+    }
+
+    this.searchQuery = query.trim();
+    this.onDidChangeTreeDataEmitter.fire();
+
+    if (this.searchQuery) {
+      const count = this.filterItems(this.items).length;
+      void vscode.window.showInformationMessage(`Found ${count} bead(s) matching "${this.searchQuery}"`);
+    }
+  }
+
+  clearSearch(): void {
+    this.searchQuery = '';
+    this.onDidChangeTreeDataEmitter.fire();
+    void vscode.window.showInformationMessage('Search cleared');
   }
 
   async updateExternalReference(item: BeadItemData, newValue: string | undefined): Promise<void> {
@@ -944,18 +1021,24 @@ function getDependencyTreeHtml(items: BeadItemData[]): string {
             border-radius: 8px;
             border: 2px solid;
             background-color: #1e1e1e;
-            cursor: pointer;
+            cursor: move;
             min-width: 120px;
             text-align: center;
-            transition: all 0.2s ease;
+            transition: box-shadow 0.2s ease;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
             z-index: 10;
+            user-select: none;
         }
 
         .node:hover {
-            transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             z-index: 20;
+        }
+
+        .node.dragging {
+            opacity: 0.8;
+            z-index: 1000;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
         }
 
         .node.status-closed {
@@ -1121,6 +1204,16 @@ function getDependencyTreeHtml(items: BeadItemData[]): string {
         const nodeElements = new Map();
         const nodePositions = new Map();
 
+        // Restore previous state if available
+        const previousState = vscode.getState() || {};
+        let savedPositions = previousState.nodePositions || {};
+
+        // Drag state
+        let draggedNode = null;
+        let draggedNodeId = null;
+        let dragOffset = {x: 0, y: 0};
+        let isDragging = false;
+
         // Simple tree layout algorithm
         function calculateLayout() {
             const levels = new Map();
@@ -1194,11 +1287,24 @@ function getDependencyTreeHtml(items: BeadItemData[]): string {
                 });
 
                 sortedNodes.forEach((node, index) => {
-                    const x = startX + (index * horizontalSpacing);
-                    const y = startY + (level * verticalSpacing);
-                    nodePositions.set(node.id, {x, y});
+                    // Use saved position if available, otherwise calculate
+                    if (savedPositions[node.id]) {
+                        nodePositions.set(node.id, savedPositions[node.id]);
+                    } else {
+                        const x = startX + (index * horizontalSpacing);
+                        const y = startY + (level * verticalSpacing);
+                        nodePositions.set(node.id, {x, y});
+                    }
                 });
             });
+        }
+
+        function savePositions() {
+            const positions = {};
+            nodePositions.forEach((pos, id) => {
+                positions[id] = pos;
+            });
+            vscode.setState({ nodePositions: positions });
         }
 
         function createNode(node) {
@@ -1211,12 +1317,33 @@ function getDependencyTreeHtml(items: BeadItemData[]): string {
                 </div>
                 <div class="node-title" title="\${node.title}">\${node.title}</div>
             \`;
+            div.dataset.nodeId = node.id;
 
-            div.addEventListener('click', () => {
-                vscode.postMessage({
-                    command: 'openBead',
-                    beadId: node.id
-                });
+            // Mouse down to start dragging
+            div.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return; // Only left mouse button
+
+                isDragging = true;
+                draggedNode = div;
+                draggedNodeId = node.id;
+
+                const pos = nodePositions.get(node.id);
+                dragOffset.x = e.clientX - pos.x;
+                dragOffset.y = e.clientY - pos.y;
+
+                div.classList.add('dragging');
+                e.preventDefault();
+                e.stopPropagation();
+            });
+
+            // Click to open (only if not dragged)
+            div.addEventListener('click', (e) => {
+                if (!isDragging) {
+                    vscode.postMessage({
+                        command: 'openBead',
+                        beadId: node.id
+                    });
+                }
             });
 
             return div;
@@ -1306,8 +1433,71 @@ function getDependencyTreeHtml(items: BeadItemData[]): string {
         }
 
         function autoLayout() {
+            // Clear saved positions and re-render
+            vscode.setState({ nodePositions: {} });
+            savedPositions = {};
             render();
         }
+
+        function redrawEdges() {
+            const svg = document.getElementById('svg');
+            const edgePaths = edges.map(edge =>
+                drawEdge(edge.from, edge.to, edge.type)
+            ).join('');
+
+            svg.innerHTML = \`
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="10"
+                            refX="9" refY="3" orient="auto">
+                        <polygon points="0 0, 10 3, 0 6"
+                                 fill="var(--vscode-panel-border)" />
+                    </marker>
+                </defs>
+                \${edgePaths}
+            \`;
+        }
+
+        // Global mouse move handler for dragging
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging || !draggedNode || !draggedNodeId) return;
+
+            const container = document.getElementById('container');
+            const scrollLeft = container.scrollLeft;
+            const scrollTop = container.scrollTop;
+
+            // Calculate new position
+            const x = e.clientX - dragOffset.x + scrollLeft;
+            const y = e.clientY - dragOffset.y + scrollTop;
+
+            // Update position
+            nodePositions.set(draggedNodeId, {x, y});
+            draggedNode.style.left = x + 'px';
+            draggedNode.style.top = y + 'px';
+
+            // Redraw edges in real-time
+            redrawEdges();
+        });
+
+        // Global mouse up handler to end dragging
+        document.addEventListener('mouseup', (e) => {
+            if (!isDragging) return;
+
+            if (draggedNode) {
+                draggedNode.classList.remove('dragging');
+            }
+
+            // Save positions to state
+            savePositions();
+
+            // Reset drag state
+            draggedNode = null;
+            draggedNodeId = null;
+
+            // Small delay to prevent click event from firing
+            setTimeout(() => {
+                isDragging = false;
+            }, 10);
+        });
 
         // Initial render
         render();
@@ -1329,41 +1519,23 @@ async function openBead(item: BeadItemData, provider: BeadsTreeDataProvider): Pr
 
   panel.webview.html = getBeadDetailHtml(item);
 
+  // Register this panel so it can be refreshed when data changes
+  provider.registerPanel(item.id, panel);
+
   // Handle messages from the webview
   panel.webview.onDidReceiveMessage(
     async (message) => {
       switch (message.command) {
         case 'updateStatus': {
           await provider.updateStatus(item, message.status);
-          // Refresh the webview with updated data
-          await provider.refresh();
-          // Find the updated item
-          const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
-          if (updatedItem) {
-            panel.webview.html = getBeadDetailHtml(updatedItem);
-          }
           break;
         }
         case 'addLabel': {
           await provider.addLabel(item, message.label);
-          // Refresh the webview with updated data
-          await provider.refresh();
-          // Find the updated item
-          const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
-          if (updatedItem) {
-            panel.webview.html = getBeadDetailHtml(updatedItem);
-          }
           break;
         }
         case 'removeLabel': {
           await provider.removeLabel(item, message.label);
-          // Refresh the webview with updated data
-          await provider.refresh();
-          // Find the updated item
-          const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
-          if (updatedItem) {
-            panel.webview.html = getBeadDetailHtml(updatedItem);
-          }
           break;
         }
       }
@@ -1431,6 +1603,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('beadsExplorer', provider),
     vscode.commands.registerCommand('beads.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('beads.search', () => provider.search()),
+    vscode.commands.registerCommand('beads.clearSearch', () => provider.clearSearch()),
     vscode.commands.registerCommand('beads.openBead', (item: BeadItemData) => openBead(item, provider)),
     vscode.commands.registerCommand('beads.createBead', () => createBead()),
     vscode.commands.registerCommand('beads.visualizeDependencies', () => visualizeDependencies(provider)),
