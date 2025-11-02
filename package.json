@@ -25,9 +25,6 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onView:beadsExplorer"
-  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -88,8 +85,8 @@
       "properties": {
         "beads.commandPath": {
           "type": "string",
-          "default": "beads",
-          "description": "Path to the beads CLI executable"
+          "default": "bd",
+          "description": "Path to the bd CLI executable (defaults to 'bd' which should be in your PATH)"
         },
         "beads.projectRoot": {
           "type": "string",
@@ -148,6 +145,7 @@
     "test": "npm run test:unit",
     "test:unit": "npm run compile && mocha ./out/test/unit/**/*.test.js",
     "test:integration": "npm run compile && node ./out/test/runTest.js",
+    "test:all": "npm run lint && npm run test:unit && npm run test:integration",
     "package": "vsce package",
     "publish": "vsce publish"
   },

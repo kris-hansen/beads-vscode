@@ -1,0 +1,109 @@
+name: Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [18.x, 20.x]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run linter
+      run: npm run lint
+
+    - name: Compile TypeScript
+      run: npm run compile
+
+    - name: Install Go (for bd CLI)
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Install bd CLI
+      run: go install github.com/steveyegge/beads@latest
+      shell: bash
+
+    - name: Add Go bin to PATH (Unix)
+      if: runner.os != 'Windows'
+      run: echo "$HOME/go/bin" >> $GITHUB_PATH
+
+    - name: Add Go bin to PATH (Windows)
+      if: runner.os == 'Windows'
+      run: echo "$HOME\go\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Verify bd installation
+      run: bd version
+      shell: bash
+
+    - name: Run unit tests
+      run: npm run test:unit
+
+    - name: Run integration tests (Linux)
+      if: runner.os == 'Linux'
+      run: xvfb-run -a npm run test:integration
+      continue-on-error: true
+
+    - name: Run integration tests (macOS/Windows)
+      if: runner.os != 'Linux'
+      run: npm run test:integration
+      continue-on-error: true
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}-node${{ matrix.node-version }}
+        path: |
+          out/
+          .vscode-test/
+        retention-days: 7
+
+  package:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Compile TypeScript
+      run: npm run compile
+
+    - name: Package extension
+      run: npm run package
+
+    - name: Upload VSIX
+      uses: actions/upload-artifact@v4
+      with:
+        name: vscode-extension
+        path: '*.vsix'
+        retention-days: 30

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { promisify } from 'util';
 import {
   BeadItemData,
@@ -14,6 +15,45 @@ import {
 } from './utils';
 
 const execFileAsync = promisify(execFile);
+
+async function findBdCommand(configPath: string): Promise<string> {
+  // If user specified a path other than default, try to use it
+  if (configPath && configPath !== 'bd') {
+    try {
+      await fs.access(configPath);
+      return configPath;
+    } catch {
+      throw new Error(`Configured bd path not found: ${configPath}`);
+    }
+  }
+
+  // Try 'bd' in PATH first
+  try {
+    await execFileAsync('bd', ['--version']);
+    return 'bd';
+  } catch {
+    // Fall through to try common locations
+  }
+
+  // Try common installation locations
+  const commonPaths = [
+    '/opt/homebrew/bin/bd',
+    '/usr/local/bin/bd',
+    path.join(os.homedir(), '.local/bin/bd'),
+    path.join(os.homedir(), 'go/bin/bd'),
+  ];
+
+  for (const p of commonPaths) {
+    try {
+      await fs.access(p);
+      return p;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error('bd command not found. Please install beads CLI: https://github.com/steveyegge/beads');
+}
 
 interface BeadsDocument {
   filePath: string;
@@ -169,87 +209,65 @@ class BeadsTreeDataProvider implements vscode.TreeDataProvider<BeadTreeItem> {
   }
 
   async updateStatus(item: BeadItemData, newStatus: string): Promise<void> {
-    if (!this.document) {
-      void vscode.window.showErrorMessage('Beads data is not loaded yet. Try refreshing the explorer.');
+    const config = vscode.workspace.getConfiguration('beads');
+    const configPath = config.get<string>('commandPath', 'bd');
+    const projectRoot = resolveProjectRoot(config);
+
+    if (!projectRoot) {
+      void vscode.window.showErrorMessage('Unable to resolve project root. Set "beads.projectRoot" or open a workspace folder.');
       return;
     }
-
-    if (!item.raw || typeof item.raw !== 'object') {
-      void vscode.window.showErrorMessage('Unable to update this bead entry because its data is not editable.');
-      return;
-    }
-
-    const mutable = item.raw as Record<string, unknown>;
-    mutable['status'] = newStatus;
 
     try {
-      await saveBeadsDocument(this.document);
+      const commandPath = await findBdCommand(configPath);
+      await execFileAsync(commandPath, ['update', item.id, '--status', newStatus], { cwd: projectRoot });
       await this.refresh();
       void vscode.window.showInformationMessage(`Updated status to: ${newStatus}`);
     } catch (error) {
-      console.error('Failed to persist beads document', error);
-      void vscode.window.showErrorMessage(formatError('Failed to save beads data file', error));
+      console.error('Failed to update status', error);
+      void vscode.window.showErrorMessage(formatError('Failed to update status', error));
     }
   }
 
   async addLabel(item: BeadItemData, label: string): Promise<void> {
-    if (!this.document) {
-      void vscode.window.showErrorMessage('Beads data is not loaded yet. Try refreshing the explorer.');
+    const config = vscode.workspace.getConfiguration('beads');
+    const configPath = config.get<string>('commandPath', 'bd');
+    const projectRoot = resolveProjectRoot(config);
+
+    if (!projectRoot) {
+      void vscode.window.showErrorMessage('Unable to resolve project root. Set "beads.projectRoot" or open a workspace folder.');
       return;
     }
 
-    if (!item.raw || typeof item.raw !== 'object') {
-      void vscode.window.showErrorMessage('Unable to update this bead entry because its data is not editable.');
-      return;
-    }
-
-    const mutable = item.raw as Record<string, unknown>;
-    let labels = mutable['labels'] as string[] | undefined;
-
-    if (!labels) {
-      labels = [];
-      mutable['labels'] = labels;
-    }
-
-    if (!labels.includes(label)) {
-      labels.push(label);
-
-      try {
-        await saveBeadsDocument(this.document);
-        await this.refresh();
-        void vscode.window.showInformationMessage(`Added label: ${label}`);
-      } catch (error) {
-        console.error('Failed to persist beads document', error);
-        void vscode.window.showErrorMessage(formatError('Failed to save beads data file', error));
-      }
+    try {
+      const commandPath = await findBdCommand(configPath);
+      await execFileAsync(commandPath, ['label', 'add', item.id, label], { cwd: projectRoot });
+      await this.refresh();
+      void vscode.window.showInformationMessage(`Added label: ${label}`);
+    } catch (error) {
+      console.error('Failed to add label', error);
+      void vscode.window.showErrorMessage(formatError('Failed to add label', error));
     }
   }
 
   async removeLabel(item: BeadItemData, label: string): Promise<void> {
-    if (!this.document) {
-      void vscode.window.showErrorMessage('Beads data is not loaded yet. Try refreshing the explorer.');
+    const config = vscode.workspace.getConfiguration('beads');
+    const configPath = config.get<string>('commandPath', 'bd');
+    const projectRoot = resolveProjectRoot(config);
+
+    if (!projectRoot) {
+      void vscode.window.showErrorMessage('Unable to resolve project root. Set "beads.projectRoot" or open a workspace folder.');
       return;
     }
 
-    if (!item.raw || typeof item.raw !== 'object') {
-      void vscode.window.showErrorMessage('Unable to update this bead entry because its data is not editable.');
-      return;
-    }
-
-    const mutable = item.raw as Record<string, unknown>;
-    let labels = mutable['labels'] as string[] | undefined;
-
-    if (labels && labels.includes(label)) {
-      mutable['labels'] = labels.filter(l => l !== label);
-
-      try {
-        await saveBeadsDocument(this.document);
-        await this.refresh();
-        void vscode.window.showInformationMessage(`Removed label: ${label}`);
-      } catch (error) {
-        console.error('Failed to persist beads document', error);
-        void vscode.window.showErrorMessage(formatError('Failed to save beads data file', error));
-      }
+    try {
+      const commandPath = await findBdCommand(configPath);
+      await execFileAsync(commandPath, ['label', 'remove', item.id, label], { cwd: projectRoot });
+      await this.refresh();
+      void vscode.window.showInformationMessage(`Removed label: ${label}`);
+    } catch (error) {
+      console.error('Failed to remove label', error);
+      void vscode.window.showErrorMessage(formatError('Failed to remove label', error));
     }
   }
 
@@ -389,13 +407,16 @@ function naturalSort(a: BeadItemData, b: BeadItemData): number {
 async function loadBeads(): Promise<{ items: BeadItemData[]; document: BeadsDocument; }> {
   const config = vscode.workspace.getConfiguration('beads');
   const projectRoot = resolveProjectRoot(config);
-  const commandPath = config.get<string>('commandPath', 'bd');
+  const configPath = config.get<string>('commandPath', 'bd');
 
   if (!projectRoot) {
     throw new Error('Unable to resolve project root. Set "beads.projectRoot" or open a workspace folder.');
   }
 
   try {
+    // Find the bd command
+    const commandPath = await findBdCommand(configPath);
+
     // Use beads CLI to query the database directly
     const { stdout } = await execFileAsync(commandPath, ['list', '--json'], {
       cwd: projectRoot,
@@ -1429,13 +1450,40 @@ function getDependencyTreeHtml(items: BeadItemData[]): string {
         }
 
         function resetZoom() {
-            document.getElementById('container').scrollTo(0, 0);
+            const container = document.getElementById('container');
+
+            // Calculate bounding box of all nodes
+            let minX = Infinity, minY = Infinity;
+            let maxX = -Infinity, maxY = -Infinity;
+
+            nodePositions.forEach(pos => {
+                minX = Math.min(minX, pos.x);
+                minY = Math.min(minY, pos.y);
+                maxX = Math.max(maxX, pos.x + 250); // account for node width
+                maxY = Math.max(maxY, pos.y + 100); // account for node height
+            });
+
+            // Calculate center point
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+
+            // Calculate viewport center
+            const viewportCenterX = container.clientWidth / 2;
+            const viewportCenterY = container.clientHeight / 2;
+
+            // Scroll to center the graph
+            container.scrollTo({
+                left: centerX - viewportCenterX,
+                top: centerY - viewportCenterY,
+                behavior: 'smooth'
+            });
         }
 
         function autoLayout() {
             // Clear saved positions and re-render
             vscode.setState({ nodePositions: {} });
             savedPositions = {};
+            nodePositions.clear();
             render();
         }
 
@@ -1554,10 +1602,11 @@ async function createBead(): Promise<void> {
   }
 
   const config = vscode.workspace.getConfiguration('beads');
-  const commandPath = config.get<string>('commandPath', 'beads');
+  const configPath = config.get<string>('commandPath', 'bd');
   const projectRoot = resolveProjectRoot(config);
 
   try {
+    const commandPath = await findBdCommand(configPath);
     await execFileAsync(commandPath, ['create', name], { cwd: projectRoot });
     void vscode.commands.executeCommand('beads.refresh');
     void vscode.window.showInformationMessage(`Created bead: ${name}`);
