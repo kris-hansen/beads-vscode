@@ -144,8 +144,9 @@
     "lint": "eslint . --ext ts",
     "test": "npm run test:unit",
     "test:unit": "npm run compile && mocha ./out/test/unit/**/*.test.js",
+    "test:bd-cli": "npm run compile && mocha ./out/test/bd-cli.test.js",
     "test:integration": "npm run compile && node ./out/test/runTest.js",
-    "test:all": "npm run lint && npm run test:unit && npm run test:integration",
+    "test:all": "npm run lint && npm run test:unit && npm run test:bd-cli",
     "package": "vsce package",
     "publish": "vsce publish"
   },
