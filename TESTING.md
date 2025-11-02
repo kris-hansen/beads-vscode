@@ -1,6 +1,6 @@
-# Testing Guide
+# Testing Guide for Beads VSCode Extension
 
-This document describes the testing infrastructure for the Beads VSCode extension.
+This document describes the comprehensive testing infrastructure including unit tests, integration tests, and GitHub Actions CI/CD.
 
 ## Test Structure
 
@@ -20,7 +20,7 @@ Pure unit tests that test utility functions without requiring VSCode runtime.
 
 ### Integration Tests (`src/test/suite/`)
 
-Tests that require the VSCode extension host to run. These test the full extension functionality including commands and tree providers.
+Tests that require the VSCode extension host to run. These test the full extension functionality including commands, tree providers, and **bd CLI integration**.
 
 **Run with:** `npm run test:integration`
 
@@ -28,23 +28,50 @@ Tests that require the VSCode extension host to run. These test the full extensi
 - Extension activation
 - Command registration
 - File handling (JSONL and JSON formats)
+- **NEW**: BD CLI operations (create, update, label management, close)
 
-**Note for macOS users:** Integration tests may fail on certain macOS versions due to compatibility issues with the `@vscode/test-electron` package. This is a known limitation. Unit tests provide comprehensive coverage of core functionality and are the primary test suite.
+**Prerequisites:** bd CLI must be installed and in PATH
+
+**Note:** Integration tests create temporary workspaces and clean up after themselves.
 
 ## Running Tests
 
+### Quick Start
 ```bash
-# Run unit tests (default, fast, no VSCode required)
+# Run all tests (lint + unit + integration)
+npm run test:all
+
+# Run just unit tests (default, fast)
 npm test
 
-# Or explicitly run unit tests
+# Run local test script (recommended)
+./scripts/test-local.sh
+```
+
+### Individual Test Suites
+```bash
+# Unit tests only (fast, no dependencies)
 npm run test:unit
 
-# Run integration tests (requires VSCode, may not work on all macOS versions)
+# Integration tests only (requires VSCode and bd CLI)
 npm run test:integration
 
 # Watch mode during development
 npm run watch
+```
+
+### Prerequisites for Integration Tests
+
+Install bd CLI:
+```bash
+# Option 1: Homebrew
+brew install steveyegge/tap/beads
+
+# Option 2: Go
+go install github.com/steveyegge/beads@latest
+
+# Verify installation
+bd version
 ```
 
 ## Test Files
@@ -52,6 +79,7 @@ npm run watch
 - `src/test/unit/utils.test.ts` - Unit tests for utility functions
 - `src/test/suite/extension.test.ts` - Integration: Extension activation and command tests
 - `src/test/suite/fileHandling.test.ts` - Integration: File I/O tests (JSONL and JSON)
+- `src/test/suite/integration.test.ts` - **NEW**: BD CLI integration tests
 
 ## Writing New Tests
 
@@ -97,12 +125,45 @@ Currently, the test suite covers:
 - ✅ Command registration
 - ✅ JSONL and JSON file handling
 
-## Continuous Integration
+## GitHub Actions CI/CD
 
-Tests should be run as part of CI/CD before merging:
+### Workflow: `.github/workflows/test.yml`
+
+Automated testing runs on:
+- Push to `main` or `develop` branches
+- Pull requests
+- Manual workflow dispatch
+
+**Matrix Testing:**
+- Operating Systems: Ubuntu, macOS, Windows
+- Node Versions: 18.x, 20.x
+- Total: 6 test combinations
+
+**Steps:**
+1. Checkout code
+2. Setup Node.js
+3. Install dependencies
+4. Run linter
+5. Compile TypeScript
+6. Install Go and bd CLI
+7. Run unit tests
+8. Run integration tests
+9. Package extension (.vsix)
+
+**Special Handling:**
+- Linux uses `xvfb-run` for headless VSCode
+- Automatic bd CLI installation via Go
+- Artifacts uploaded for debugging
+
+### Running Locally
 
 ```bash
-npm run compile && npm run lint && npm test
-```
+# Comprehensive local test (recommended)
+./scripts/test-local.sh
 
-The default `npm test` runs unit tests which are fast, reliable, and work across all platforms including macOS. Integration tests require a display/GUI environment and may not work in all CI environments or on all macOS versions.
+# Or manually
+npm run lint
+npm run compile
+npm run test:unit
+npm run test:integration
+```
