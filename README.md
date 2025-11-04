@@ -4,29 +4,63 @@ This Visual Studio Code extension provides a simple explorer view for [Beads](ht
 
 ## Features
 
-- Tree view in the Explorer sidebar that lists all beads for the current workspace.
-- Loads bead information directly from the JSON data file so fields such as the external reference ID stay in sync.
-- Refresh command to reload bead information.
-- Open command to jump directly to the file that a bead references.
-- Edit command to update the external reference identifier stored in the JSON data.
-- Create command to add a new bead from within VS Code.
+- **Dedicated Activity Bar**: Beads has its own dedicated view in the VS Code activity bar for easy access.
+- **Tree View**: Explorer view that lists all beads for the current workspace with status-based icons.
+- **Live Data Sync**: Automatically watches the Beads database for changes and refreshes the view in real-time.
+- **Search**: Search across beads by ID, title, description, labels, status, assignee, and more.
+- **Drag and Drop Sorting**: Manually reorder beads in the tree view with drag-and-drop support.
+- **Dependency Visualization**: Interactive dependency graph showing relationships between beads with draggable nodes.
+- **Rich Bead Details**: Click any bead to view a detailed panel with:
+  - Full description, design notes, and acceptance criteria
+  - Status, priority, issue type, and timestamps
+  - Labels with quick add/remove functionality
+  - External reference tracking
+  - Dependency information
+- **Inline Editing**: Edit bead status and labels directly from the detail view.
+- **Quick Label Management**:
+  - Add/remove custom labels
+  - Quick "In Review" toggle button
+- **CLI Integration**: Create new beads directly from VS Code using the `bd` CLI.
+- **Natural Sorting**: Beads are sorted naturally by ID (handles numeric parts correctly).
 
-The extension reads from the Beads JSON data file (defaults to `.beads/beads.json` in your project). The `beads` CLI is only required for creating new beads from within VS Code and can be configured via the extension settings if needed.
+The extension integrates with the Beads CLI (`bd`) and reads from the Beads database (`.beads/*.db`). Changes are automatically reflected in the UI through file system watchers.
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `Beads: Refresh` | Reload bead data from the JSON data file. |
-| `Beads: Open` | Open the file associated with the selected bead (if available). |
+| `Beads: Refresh` | Manually reload bead data from the database. |
+| `Beads: Search` | Search beads by ID, title, description, labels, status, and more. |
+| `Beads: Clear Search` | Clear the current search filter and show all beads. |
+| `Beads: Open` | Open a detailed view panel for the selected bead with full information and editing capabilities. |
 | `Beads: Edit External Reference` | Update the external reference identifier stored for the bead. |
-| `Beads: Create` | Prompt for a title and invoke `beads create`. |
+| `Beads: Create` | Create a new bead by prompting for a title and invoking `bd create`. |
+| `Beads: Visualize Dependencies` | Open an interactive dependency graph showing relationships between beads. |
+| `Beads: Clear Manual Sort Order` | Reset manual drag-and-drop sorting and return to natural ID-based sorting. |
 
 ## Settings
 
-- `beads.commandPath`: Path to the Beads CLI executable. Defaults to `beads`.
+- `beads.commandPath`: Path to the Beads CLI executable. Defaults to `bd`.
 - `beads.projectRoot`: Optional override for the working directory used when invoking the CLI or resolving relative data file paths.
-- `beads.dataFile`: Path to the Beads JSON data file. Relative paths are resolved from the project root and it defaults to `.beads/beads.json`.
+- `beads.dataFile`: Path to the Beads data file. Defaults to `.beads/issues.jsonl` (supports both JSONL and JSON formats).
+
+## How to Use
+
+### Basic Workflow
+
+1. **View Beads**: Click the Beads icon in the activity bar to see all your issues
+2. **Search**: Click the search icon to filter beads by any field
+3. **View Details**: Click any bead to open a detailed view with full information
+4. **Edit Status/Labels**: Click "Edit" in the detail view to modify status and labels
+5. **Visualize**: Click the graph icon to see dependency relationships
+6. **Reorder**: Drag and drop beads to customize the order (persisted per workspace)
+
+### Status Icons
+
+- 🟢 **Green checkmark**: Closed
+- 🟡 **Yellow clock**: In Progress
+- 🔴 **Red error**: Blocked
+- 🔵 **Blue circle**: Open
 
 ## Development
 

@@ -60,6 +60,11 @@
         "command": "beads.visualizeDependencies",
         "title": "Beads: Visualize Dependencies",
         "icon": "$(graph)"
+      },
+      {
+        "command": "beads.clearSortOrder",
+        "title": "Beads: Clear Manual Sort Order",
+        "icon": "$(list-ordered)"
       }
     ],
     "viewsContainers": {
@@ -126,6 +131,11 @@
           "command": "beads.visualizeDependencies",
           "when": "view == beadsExplorer",
           "group": "navigation@5"
+        },
+        {
+          "command": "beads.clearSortOrder",
+          "when": "view == beadsExplorer",
+          "group": "1_sort@1"
         }
       ],
       "view/item/context": [
