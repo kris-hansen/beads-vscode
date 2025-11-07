@@ -935,6 +935,15 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
             color: var(--vscode-descriptionForeground);
             font-style: italic;
         }
+        .external-link {
+            color: var(--vscode-textLink-foreground);
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .external-link:hover {
+            color: var(--vscode-textLink-activeForeground);
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -990,8 +999,7 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
     <div class="section">
         <div class="section-title">Details</div>
         ${assignee ? `<div class="meta-item"><span class="meta-label">Assignee:</span><span class="meta-value">${escapeHtml(assignee)}</span></div>` : ''}
-        ${item.externalReferenceId ? `<div class="meta-item"><span class="meta-label">External ID:</span><span class="meta-value">${escapeHtml(item.externalReferenceId)}</span></div>` : ''}
-        ${item.externalReferenceDescription ? `<div class="meta-item"><span class="meta-label">External Desc:</span><span class="meta-value">${escapeHtml(item.externalReferenceDescription)}</span></div>` : ''}
+        ${item.externalReferenceId ? `<div class="meta-item"><span class="meta-label">External Ref:</span><span class="meta-value"><a href="${escapeHtml(item.externalReferenceId)}" class="external-link" target="_blank">${escapeHtml(item.externalReferenceDescription || item.externalReferenceId)}</a></span></div>` : ''}
         ${createdAt ? `<div class="meta-item"><span class="meta-label">Created:</span><span class="meta-value">${createdAt}</span></div>` : ''}
         ${updatedAt ? `<div class="meta-item"><span class="meta-label">Updated:</span><span class="meta-value">${updatedAt}</span></div>` : ''}
         ${closedAt ? `<div class="meta-item"><span class="meta-label">Closed:</span><span class="meta-value">${closedAt}</span></div>` : ''}
@@ -1180,6 +1188,20 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
                     vscode.postMessage({
                         command: 'openBead',
                         beadId: issueId
+                    });
+                }
+            }
+        });
+
+        // Handle external link clicks
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('external-link')) {
+                e.preventDefault();
+                const url = e.target.getAttribute('href');
+                if (url) {
+                    vscode.postMessage({
+                        command: 'openExternalUrl',
+                        url: url
                     });
                 }
             }
@@ -1833,6 +1855,14 @@ async function openBead(item: BeadItemData, provider: BeadsTreeDataProvider): Pr
             await openBead(targetBead, provider);
           } else {
             void vscode.window.showWarningMessage(`Issue ${message.beadId} not found`);
+          }
+          break;
+        }
+        case 'openExternalUrl': {
+          // Open external URL in default browser
+          const url = message.url;
+          if (url) {
+            await vscode.env.openExternal(vscode.Uri.parse(url));
           }
           break;
         }

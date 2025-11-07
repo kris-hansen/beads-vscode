@@ -180,11 +180,8 @@ export function createTooltip(bead: BeadItemData): string {
     parts.push(`Tags: ${bead.tags.join(', ')}`);
   }
   if (bead.externalReferenceId) {
-    if (bead.externalReferenceDescription) {
-      parts.push(`External Reference: ${bead.externalReferenceId} (${bead.externalReferenceDescription})`);
-    } else {
-      parts.push(`External Reference: ${bead.externalReferenceId}`);
-    }
+    const displayText = bead.externalReferenceDescription || bead.externalReferenceId;
+    parts.push(`External Ref: ${displayText} (${bead.externalReferenceId})`);
   }
   return parts.join('\n');
 }
