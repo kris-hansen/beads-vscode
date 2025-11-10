@@ -7,7 +7,8 @@ import {
   resolveDataFilePath,
   extractBeads,
   formatError,
-  escapeHtml
+  escapeHtml,
+  linkifyText
 } from '../../utils';
 
 describe('Utility Functions', () => {
@@ -255,6 +256,38 @@ describe('Utility Functions', () => {
     it('should handle string with no special chars', () => {
       const result = escapeHtml('plain text');
       assert.strictEqual(result, 'plain text');
+    });
+  });
+
+  describe('linkifyText', () => {
+    it('should convert URLs to clickable links', () => {
+      const result = linkifyText('Check out https://example.com for more info');
+      assert.strictEqual(result, 'Check out <a href="https://example.com" class="external-link" target="_blank">https://example.com</a> for more info');
+    });
+
+    it('should handle multiple URLs', () => {
+      const result = linkifyText('Visit https://example.com and https://test.com');
+      assert.strictEqual(result, 'Visit <a href="https://example.com" class="external-link" target="_blank">https://example.com</a> and <a href="https://test.com" class="external-link" target="_blank">https://test.com</a>');
+    });
+
+    it('should handle text with no URLs', () => {
+      const result = linkifyText('plain text with no links');
+      assert.strictEqual(result, 'plain text with no links');
+    });
+
+    it('should escape HTML while preserving URLs', () => {
+      const result = linkifyText('<script>alert("xss")</script> https://example.com');
+      assert.strictEqual(result, '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt; <a href="https://example.com" class="external-link" target="_blank">https://example.com</a>');
+    });
+
+    it('should handle http and https URLs', () => {
+      const result = linkifyText('http://example.com and https://secure.com');
+      assert.strictEqual(result, '<a href="http://example.com" class="external-link" target="_blank">http://example.com</a> and <a href="https://secure.com" class="external-link" target="_blank">https://secure.com</a>');
+    });
+
+    it('should handle URLs with paths and query strings', () => {
+      const result = linkifyText('https://linear.app/ereborbank/issue/ERE-1718/implement-statement-correction');
+      assert.strictEqual(result, '<a href="https://linear.app/ereborbank/issue/ERE-1718/implement-statement-correction" class="external-link" target="_blank">https://linear.app/ereborbank/issue/ERE-1718/implement-statement-correction</a>');
     });
   });
 });

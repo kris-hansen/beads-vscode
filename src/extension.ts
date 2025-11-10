@@ -11,6 +11,7 @@ import {
   resolveDataFilePath,
   formatError,
   escapeHtml,
+  linkifyText,
   createTooltip
 } from './utils';
 
@@ -256,6 +257,27 @@ class BeadsTreeDataProvider implements vscode.TreeDataProvider<BeadTreeItem>, vs
     } catch (error) {
       console.error('Failed to update status', error);
       void vscode.window.showErrorMessage(formatError('Failed to update status', error));
+    }
+  }
+
+  async updateTitle(item: BeadItemData, newTitle: string): Promise<void> {
+    const config = vscode.workspace.getConfiguration('beads');
+    const configPath = config.get<string>('commandPath', 'bd');
+    const projectRoot = resolveProjectRoot(config);
+
+    if (!projectRoot) {
+      void vscode.window.showErrorMessage('Unable to resolve project root. Set "beads.projectRoot" or open a workspace folder.');
+      return;
+    }
+
+    try {
+      const commandPath = await findBdCommand(configPath);
+      await execFileAsync(commandPath, ['update', item.id, '--title', newTitle], { cwd: projectRoot });
+      await this.refresh();
+      void vscode.window.showInformationMessage(`Updated title to: ${newTitle}`);
+    } catch (error) {
+      console.error('Failed to update title', error);
+      void vscode.window.showErrorMessage(formatError('Failed to update title', error));
     }
   }
 
@@ -772,6 +794,18 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
             font-size: 24px;
             font-weight: 600;
             margin: 0 0 16px 0;
+            border-radius: 4px;
+            padding: 4px;
+            transition: background-color 0.2s;
+        }
+        .title[contenteditable="true"] {
+            background-color: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            outline: none;
+            cursor: text;
+        }
+        .title[contenteditable="true"]:focus {
+            border-color: var(--vscode-focusBorder);
         }
         .metadata {
             display: flex;
@@ -952,7 +986,7 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
             <div class="issue-id">${item.id}</div>
             <button class="edit-button" id="editButton">Edit</button>
         </div>
-        <h1 class="title">${escapeHtml(item.title)}</h1>
+        <h1 class="title" id="issueTitle" contenteditable="false">${escapeHtml(item.title)}</h1>
         <div class="metadata">
             <div class="status-wrapper">
                 <span class="badge status-badge" id="statusBadge" data-status="${item.status || 'open'}">${statusDisplay || 'Open'}</span>
@@ -971,28 +1005,28 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
     ${description ? `
     <div class="section">
         <div class="section-title">Description</div>
-        <div class="description">${escapeHtml(description)}</div>
+        <div class="description">${linkifyText(description)}</div>
     </div>
     ` : ''}
 
     ${design ? `
     <div class="section">
         <div class="section-title">Design</div>
-        <div class="description">${escapeHtml(design)}</div>
+        <div class="description">${linkifyText(design)}</div>
     </div>
     ` : ''}
 
     ${acceptanceCriteria ? `
     <div class="section">
         <div class="section-title">Acceptance Criteria</div>
-        <div class="description">${escapeHtml(acceptanceCriteria)}</div>
+        <div class="description">${linkifyText(acceptanceCriteria)}</div>
     </div>
     ` : ''}
 
     ${notes ? `
     <div class="section">
         <div class="section-title">Notes</div>
-        <div class="description">${escapeHtml(notes)}</div>
+        <div class="description">${linkifyText(notes)}</div>
     </div>
     ` : ''}
 
@@ -1053,12 +1087,15 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
         const editButton = document.getElementById('editButton');
         const statusBadge = document.getElementById('statusBadge');
         const statusDropdown = document.getElementById('statusDropdown');
+        const issueTitle = document.getElementById('issueTitle');
 
         const labelActions = document.getElementById('labelActions');
         const addInReviewButton = document.getElementById('addInReviewButton');
         const addLabelButton = document.getElementById('addLabelButton');
         const inReviewButtonText = document.getElementById('inReviewButtonText');
         const labelsContainer = document.getElementById('labelsContainer');
+
+        let originalTitle = issueTitle.textContent;
 
         console.log('DEBUG: labelActions element:', labelActions);
         console.log('DEBUG: addInReviewButton element:', addInReviewButton);
@@ -1077,6 +1114,8 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
                 editButton.textContent = 'Done';
                 statusBadge.classList.add('editable');
                 labelActions.style.display = 'block';
+                issueTitle.contentEditable = 'true';
+                originalTitle = issueTitle.textContent;
 
                 // Show remove buttons on labels
                 document.querySelectorAll('.tag-remove').forEach(btn => {
@@ -1092,6 +1131,21 @@ function getBeadDetailHtml(item: BeadItemData, allItems?: BeadItemData[]): strin
                 statusBadge.classList.remove('editable');
                 statusDropdown.classList.remove('show');
                 labelActions.style.display = 'none';
+                issueTitle.contentEditable = 'false';
+
+                // Save title if changed
+                const newTitle = issueTitle.textContent.trim();
+                if (newTitle !== originalTitle && newTitle.length > 0) {
+                    vscode.postMessage({
+                        command: 'updateTitle',
+                        title: newTitle,
+                        issueId: '${item.id}'
+                    });
+                    originalTitle = newTitle;
+                } else if (newTitle.length === 0) {
+                    // Restore original title if empty
+                    issueTitle.textContent = originalTitle;
+                }
 
                 // Hide remove buttons on labels
                 document.querySelectorAll('.tag-remove').forEach(btn => {
@@ -1838,6 +1892,10 @@ async function openBead(item: BeadItemData, provider: BeadsTreeDataProvider): Pr
       switch (message.command) {
         case 'updateStatus': {
           await provider.updateStatus(item, message.status);
+          break;
+        }
+        case 'updateTitle': {
+          await provider.updateTitle(item, message.title);
           break;
         }
         case 'addLabel': {

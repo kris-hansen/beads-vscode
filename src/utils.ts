@@ -168,6 +168,12 @@ export function escapeHtml(text: string): string {
   });
 }
 
+export function linkifyText(text: string): string {
+  const escaped = escapeHtml(text);
+  const urlRegex = /(https?:\/\/[^\s<>"]+)/g;
+  return escaped.replace(urlRegex, '<a href="$1" class="external-link" target="_blank">$1</a>');
+}
+
 export function createTooltip(bead: BeadItemData): string {
   const parts: string[] = [bead.title];
   if (bead.status) {
