@@ -566,10 +566,7 @@ function getBeadDetailHtml(item: BeadItemData): string {
     <div class="header">
         <div class="header-top">
             <div class="issue-id">${item.id}</div>
-            <div style="display: flex; gap: 8px;">
-                <button class="edit-button" id="refreshButton" title="Refresh data">↻</button>
-                <button class="edit-button" id="editButton">Edit</button>
-            </div>
+            <button class="edit-button" id="editButton">Edit</button>
         </div>
         <h1 class="title">${escapeHtml(item.title)}</h1>
         <div class="metadata">
@@ -592,13 +589,8 @@ function getBeadDetailHtml(item: BeadItemData): string {
         let isEditMode = false;
 
         const editButton = document.getElementById('editButton');
-        const refreshButton = document.getElementById('refreshButton');
         const statusBadge = document.getElementById('statusBadge');
         const statusDropdown = document.getElementById('statusDropdown');
-
-        refreshButton.addEventListener('click', () => {
-            vscode.postMessage({ command: 'refresh' });
-        });
 
         editButton.addEventListener('click', () => {
             isEditMode = !isEditMode;
@@ -720,17 +712,6 @@ async function openBead(item: BeadItemData, provider: BeadsTreeDataProvider): Pr
 
   panel.webview.html = getBeadDetailHtml(item);
 
-  // Auto-refresh when panel becomes visible
-  panel.onDidChangeViewState(async (e) => {
-    if (e.webviewPanel.visible) {
-      await provider.refresh();
-      const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
-      if (updatedItem) {
-        panel.webview.html = getBeadDetailHtml(updatedItem);
-      }
-    }
-  });
-
   // Handle messages from the webview
   panel.webview.onDidReceiveMessage(
     async (message) => {
@@ -740,15 +721,6 @@ async function openBead(item: BeadItemData, provider: BeadsTreeDataProvider): Pr
           // Refresh the webview with updated data
           await provider.refresh();
           // Find the updated item
-          const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
-          if (updatedItem) {
-            panel.webview.html = getBeadDetailHtml(updatedItem);
-          }
-          break;
-        }
-        case 'refresh': {
-          // Manual refresh triggered from webview
-          await provider.refresh();
           const updatedItem = provider['items'].find((i: BeadItemData) => i.id === item.id);
           if (updatedItem) {
             panel.webview.html = getBeadDetailHtml(updatedItem);
