@@ -1,5 +1,7 @@
 # Beads VS Code Extension
 
+![Beads VS Code Extension](beads-visual.png)
+
 This Visual Studio Code extension provides a simple explorer view for [Beads](https://github.com/steveyegge/beads) projects so that you can manage your beads without leaving the editor.
 
 ## Features
@@ -20,6 +22,8 @@ This Visual Studio Code extension provides a simple explorer view for [Beads](ht
 - **Quick Label Management**:
   - Add/remove custom labels
   - Quick "In Review" toggle button
+- **Clickable URLs**: URLs in bead descriptions and notes are automatically converted to clickable links.
+- **Delete Beads**: Remove beads with keyboard shortcuts (`Cmd+Backspace` on Mac, `Delete` on Windows/Linux) or via context menu.
 - **CLI Integration**: Create new beads directly from VS Code using the `bd` CLI.
 - **Natural Sorting**: Beads are sorted naturally by ID (handles numeric parts correctly).
 
@@ -37,6 +41,15 @@ The extension integrates with the Beads CLI (`bd`) and reads from the Beads data
 | `Beads: Create` | Create a new bead by prompting for a title and invoking `bd create`. |
 | `Beads: Visualize Dependencies` | Open an interactive dependency graph showing relationships between beads. |
 | `Beads: Clear Manual Sort Order` | Reset manual drag-and-drop sorting and return to natural ID-based sorting. |
+| `Beads: Delete` | Delete selected bead(s) from the project. |
+
+## Keyboard Shortcuts
+
+| Shortcut | Platform | Action |
+| --- | --- | --- |
+| `Cmd+Backspace` | macOS | Delete selected bead(s) |
+| `Delete` | Windows/Linux | Delete selected bead(s) |
+| `Backspace` | All | Delete selected bead(s) (when tree view is focused) |
 
 ## Settings
 
